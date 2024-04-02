@@ -1,0 +1,279 @@
+#!/bin/sh
+#
+# Copyright (C) 2012-2024  Etersoft
+# Copyright (C) 2012-2024  Vitaly Lipatov <lav@etersoft.ru>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
+PROGDIR=$(dirname "$0")
+PROGNAME=$(basename "$0")
+[ -n "$EPMCURDIR" ] || export EPMCURDIR="$(pwd)"
+CMDSHELL="/bin/sh"
+[ "$PROGDIR" = "." ] && PROGDIR="$EPMCURDIR"
+if [ "$0" = "/dev/stdin" ] || [ "$0" = "sh" ] ; then
+    PROGDIR=""
+    PROGNAME=""
+fi
+
+# will replaced with /usr/share/eepm during install
+SHAREDIR=$PROGDIR
+# will replaced with /etc/eepm during install
+CONFIGDIR=$PROGDIR/../etc
+
+EPMVERSION="@VERSION@"
+
+# package, single (file), pipe, git
+EPMMODE="package"
+[ "$SHAREDIR" = "$PROGDIR" ] && EPMMODE="single"
+[ "$EPMVERSION" = "@""VERSION""@" ] && EPMMODE="git"
+[ "$PROGNAME" = "" ] && EPMMODE="pipe"
+
+if [ "$EPMMODE" = "git" ] ; then
+    EPMVERSION=$(head $PROGDIR/../eepm-apt.spec | grep "^Version: " | sed -e 's|Version: ||' )
+fi
+
+load_helper()
+{
+    local CMD="$SHAREDIR/$1"
+    # do not use fatal() here, it can be initial state
+    [ -r "$CMD" ] || { echo "FATAL: Have no $CMD helper file" ; exit 1; }
+    # shellcheck disable=SC1090
+    . $CMD
+}
+
+
+load_helper epm-sh-functions
+
+#PATH=$PATH:/sbin:/usr/sbin
+
+set_pm_type
+
+check_tty
+
+#############################
+
+phelp()
+{
+	echo "
+apt 2.4.12 (noarch)
+Usage: apt [options] command
+
+Usage: apt [options] command
+
+apt is a commandline package manager and provides commands for
+searching and managing as well as querying information about packages.
+
+Really this command is the apt like frontend for Etersoft EPM package manager.
+
+List of Commands:
+
+$(get_help HELPCMD | sed -e 's@|@,@g')
+
+Options:
+$(get_help HELPOPT | sed -e 's@|@,@g')
+
+"
+}
+
+print_version()
+{
+        echo "EPM package manager version $EPMVERSION  https://wiki.etersoft.ru/Epm"
+        echo "Running on $($DISTRVENDOR -e) ('$PMTYPE' package manager uses '$PKGFORMAT' package format)"
+        echo "Copyright (c) Etersoft 2012-2024"
+        echo "This program may be freely redistributed under the terms of the GNU AGPLv3."
+}
+
+
+verbose=
+quiet=
+nodeps=
+noremove=
+dryrun=
+force=
+repack=
+inscript=
+scripts=
+noscripts=
+short=
+direct=
+sort=
+non_interactive=
+skip_installed=
+skip_missed=
+show_command_only=
+epm_cmd=
+pkg_files=
+pkg_dirs=
+pkg_names=
+pkg_urls=
+quoted_args=
+
+# load system wide config
+[ -f $CONFIGDIR/eepm.conf ] && . $CONFIGDIR/eepm.conf
+
+
+check_command()
+{
+    # do not override command
+    [ -z "$epm_cmd" ] || return
+
+# Bellow original commands to be mapped into eepm are taken from the following places:
+# - yum help
+# - source code of dnf 4.x, dnf/cli/commands/*.py, "aliases = (<...>)" (yum-dnf will understand them)
+# - default upstream configs of aliases in dnf 4.x (output of `dnf alias`)
+# HELPCMD:
+    case $1 in
+    list)                     # HELPCMD: list packages based on package names
+        # TODO: support base options (see list -h), all available packages by default
+        epm_cmd=packages
+        ;;
+    search)                   # HELPCMD: search in package descriptions
+        epm_cmd=search
+        ;;
+    show)                     # HELPCMD: show package details
+        epm_cmd=info
+        ;;
+    install)                  # HELPCMD: install packages
+        epm_cmd=install
+        ;;
+    reinstall)                # HELPCMD: reinstall packages
+        epm_cmd=reinstall
+        ;;
+    remove)                   # HELPCMD: remove packages
+        epm_cmd=remove
+        ;;
+    autoremove)               # HELPCMD: remove automatically all unused packages
+        epm_cmd=autoremove
+        ;;
+    update)                   # HELPCMD: update list of available packages
+        epm_cmd=update
+        ;;
+    upgrade)                  # HELPCMD: upgrade the system by installing/upgrading packages
+        epm_cmd=upgrade
+        ;;
+    full-upgrade)             # HELPCMD: upgrade system packages, flatpak packages, snap packages
+        epm_cmd=full_upgrade
+        ;;
+
+    purge)                    # HELPCMD: remove packages
+        epm_cmd=remove
+        ;;
+
+    help)                     # HELPCMD: Display a helpful usage message
+        help=1
+        phelp
+        exit 0
+        ;;
+    version)                  # HELPCMD: Display a version for the machine and/or available repos.
+        echo "Installed: $DISTRVERSION/$DISTRARCH"
+        echo "version"
+        exit 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+    return 0
+}
+
+check_option()
+{
+    case $1 in
+    -h|--help)            # HELPOPT: show this help message and exit
+        help=1
+        phelp
+        exit 0
+       ;;
+    -y|--assumeyes)       # HELPOPT: answer yes for all questions
+        non_interactive="--auto"
+        ;;
+    --version)            # HELPOPT: show Yum version and exit
+        print_version
+        exit 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+    return 0
+}
+
+# TODO: skip for commands where we don't need parse args
+
+check_filenames()
+{
+    local opt
+    for opt in "$@" ; do
+        # files can be with full path or have extension via .
+        if [ -f "$opt" ] && echo "$opt" | grep -q "[/\.]" ; then
+            has_space "$opt" && warning "There are space(s) in filename '$opt', it is not supported. Skipped" && continue
+            pkg_files="$pkg_files $opt"
+        elif [ -d "$opt" ] ; then
+            has_space "$opt" && warning "There are space(s) in directory path '$opt', it is not supported. Skipped" && continue
+            pkg_dirs="$pkg_dirs $opt"
+        elif is_url "$opt" ; then
+            has_space "$opt" && warning "There are space(s) in URL '$opt', it is not supported. Skipped" && continue
+            pkg_urls="$pkg_urls $opt"
+        else
+            has_space "$opt" && warning "There are space(s) in package name '$opt', it is not supported. Skipped." && continue
+            pkg_names="$pkg_names $opt"
+        fi
+        quoted_args="$quoted_args \"$opt\""
+    done
+}
+
+FLAGENDOPTS=
+for opt in "$@" ; do
+    [ "$opt" = "--" ] && FLAGENDOPTS=1 && continue
+    if [ -z "$FLAGENDOPTS" ] ; then
+        check_command "$opt" && continue
+        check_option "$opt" && continue
+    fi
+    # Note: will parse all params separately (no package names with spaces!)
+    check_filenames "$opt"
+done
+
+pkg_files=$(strip_spaces "$pkg_files")
+pkg_dirs=$(strip_spaces "$pkg_dirs")
+# in common case dirs equals to names only suddenly
+pkg_names=$(strip_spaces "$pkg_names $pkg_dirs")
+pkg_urls=$(strip_spaces "$pkg_urls")
+
+pkg_filenames=$(strip_spaces "$pkg_files $pkg_names")
+
+# Just debug
+#echover "command: $epm_cmd"
+#echover "pkg_files=$pkg_files"
+#echover "pkg_names=$pkg_names"
+
+# Just printout help if run without args
+if [ -z "$epm_cmd" ] ; then
+    phelp
+    echo
+    fatstr="No such command: $*. Please use /usr/bin/yum --help"
+    [ -n "$*" ] || fatstr="You need to give some command"
+    # TODO: https://bugzilla.altlinux.org/show_bug.cgi?id=39093
+    # Почему-то только в этом файле/пакете использование info вызывает зависимость на пакет info
+    #info "$fatstr."
+    echo "$fatstr."
+    exit 1
+fi
+
+[ -n "$verbose$EPM_VERBOSE" ] && showcmd "$0 $*"
+
+# Run helper for command with natural args
+load_helper epm-$epm_cmd
+eval epm_$epm_cmd $quoted_args
+# return last error code (from subroutine)
