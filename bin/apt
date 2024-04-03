@@ -266,6 +266,8 @@ fi
 
 [ -n "$verbose$EPM_VERBOSE" ] && showcmd "$0 $*"
 
+[ -z "$quiet" ] && warning "You are using apt command, but you are on $PKGFORMAT-based system, so apt is only a wrapper here. It is recommended to use epm commands (it has the same command syntax)."
+
 # Run helper for command with natural args
 load_helper epm-$epm_cmd
 eval epm_$epm_cmd $quoted_args
