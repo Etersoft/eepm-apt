@@ -203,7 +203,7 @@ check_option()
         phelp
         exit 0
        ;;
-    -y|--assumeyes)       # HELPOPT: answer yes for all questions
+    -y|)                  # HELPOPT: answer yes for all questions
         non_interactive="--auto"
         ;;
     --version)            # HELPOPT: show apt version and exit
