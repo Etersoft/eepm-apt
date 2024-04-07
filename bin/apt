@@ -165,10 +165,24 @@ check_command()
         epm_cmd=full_upgrade
         ;;
 
+# HELPCMD: PART: Other commands:
     purge)                    # HELPCMD: remove packages
         epm_cmd=remove
         ;;
-
+    clean|autoclean)          # HELPCMD: clean local package cache
+        epm_cmd=clean
+        direct_args=1
+        ;;
+    dist-upgrade)             # HELPCMD: upgrade the system by installing/upgrading packages
+        epm_cmd=upgrade
+        ;;
+    autoremove)               # HELPCMD: auto remove unneeded packages
+        epm_cmd=autoremove
+        direct_args=1
+        ;;
+    policy)                   # HELPCMD: print detailed information about the priority selection of package
+        epm_cmd=policy
+        ;;
     help)                     # HELPCMD: Display a helpful usage message
         help=1
         phelp
